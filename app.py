@@ -3,7 +3,7 @@ import streamlit as st
 st.set_page_config(page_title="Generador de Pedidos", page_icon="🛍️")
 
 st.title("🛍️ Generador de Pedidos")
-st.write("Completa los datos y usa el botón para copiar el mensaje.")
+st.write("Completa los datos y presiona el botón para copiar.")
 
 # Campos de entrada
 sector = st.text_input("Sector")
@@ -27,12 +27,10 @@ mensaje = (
 st.divider()
 
 if sector and productos:
-    # Mostramos el mensaje para previsualizar
-    st.text(mensaje)
+    st.subheader("Mensaje Generado:")
+    # Usamos st.code porque incluye un botón de "copiar" automático en la esquina superior derecha
+    st.code(mensaje, language="markdown")
     
-    # NUEVO: Botón que copia directo al portapapeles
-    st.copy_to_clipboard(mensaje, before_copy_label="📋 COPIAR MENSAJE", after_copy_label="✅ ¡COPIADO!")
-    
-    st.info("Una vez copiado, ve a WhatsApp y dale a 'Pegar'.")
+    st.success("Haz clic en el icono de las hojitas (arriba a la derecha del cuadro negro) para COPIAR.")
 else:
-    st.warning("Completa 'Sector' y 'Productos' para generar el botón de copia.")
+    st.warning("Completa 'Sector' y 'Productos' para ver el mensaje.")
