@@ -13,8 +13,7 @@ def conectar_google():
         creds_info = st.secrets["gcp_service_account"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
         return gspread.authorize(creds)
-    except Exception as e:
-        st.error(f"Error de credenciales: {e}")
+    except:
         return None
 
 def obtener_datos():
@@ -23,106 +22,83 @@ def obtener_datos():
         try:
             hoja = client.open("Registro de Pedidos").sheet1
             return hoja.get_all_records()
-        except:
-            return []
+        except: return []
     return []
 
+# --- LÓGICA DE LIMPIEZA ---
+def limpiar_campos():
+    st.session_state.sector = ""
+    st.session_state.ubica = ""
+    st.session_state.cel = ""
+    st.session_state.monto = ""
+    st.session_state.prod = ""
+
 # --- INTERFAZ ---
-st.title("🚀 Panel de Control y Despacho")
+st.title("🚀 Panel de Control Comonli")
 
 datos = obtener_datos()
 fecha_hoy = datetime.now().strftime("%d/%m/%Y")
-# Filtrar pedidos de hoy
 pedidos_hoy = [fila for fila in datos if fecha_hoy in str(fila.get('Fecha y Hora', ''))]
 
-# --- MÉTRICAS ---
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric("Total Hoy", len(pedidos_hoy))
-with col2:
-    pendientes = len([p for p in pedidos_hoy if p.get('Estado') != 'Entregado'])
-    st.metric("Por Entregar", pendientes)
-with col3:
-    entregados = len([p for p in pedidos_hoy if p.get('Estado') == 'Entregado'])
-    st.metric("Entregados", entregados)
+# MÉTRICAS
+c1, c2, c3 = st.columns(3)
+with c1: st.metric("Total Hoy", len(pedidos_hoy))
+with c2: st.metric("Pendientes", len([p for p in pedidos_hoy if p.get('Estado') != 'Entregado']))
+with c3: st.metric("Entregados", len([p for p in pedidos_hoy if p.get('Estado') == 'Entregado']))
 
 st.divider()
 
-# --- HOJA DE RUTA (LINKS) ---
-st.subheader("🗺️ Hoja de Ruta (Ubicaciones)")
+# GESTIÓN DE PEDIDOS (Actualizar/Borrar)
+st.subheader("🔄 Pedidos de Hoy")
 if pedidos_hoy:
-    cols_mapa = st.columns(4)
-    for i, p in enumerate(pedidos_hoy):
-        with cols_mapa[i % 4]:
-            link = p.get('Ubicación (Google Maps)', p.get('Ubicación', ''))
-            if "maps" in str(link).lower():
-                st.link_button(f"📍 {p.get('Sector')}", str(link))
-else:
-    st.info("No hay rutas para mostrar.")
+    opciones = ["Pendiente", "En Camino", "Entregado"]
+    for idx, p in enumerate(pedidos_hoy):
+        col_a, col_b, col_c, col_d = st.columns([3, 2, 1, 1])
+        with col_a: st.write(f"📍 **{p.get('Sector')}** - {p.get('Productos')[:20]}...")
+        with col_b:
+            estado_actual = p.get('Estado') if p.get('Estado') in opciones else "Pendiente"
+            nuevo_e = st.selectbox(f"e{idx}", opciones, index=opciones.index(estado_actual), key=f"s{idx}", label_visibility="collapsed")
+        with col_c:
+            if st.button("OK", key=f"ok{idx}"):
+                client = conectar_google(); hoja = client.open("Registro de Pedidos").sheet1
+                celda = hoja.find(p['Fecha y Hora']); hoja.update_cell(celda.row, 7, nuevo_e); st.rerun()
+        with col_d:
+            if st.button("🗑️", key=f"del{idx}"):
+                client = conectar_google(); hoja = client.open("Registro de Pedidos").sheet1
+                celda = hoja.find(p['Fecha y Hora']); hoja.delete_rows(celda.row); st.rerun()
+else: st.write("No hay pedidos.")
 
 st.divider()
 
-# --- GESTIÓN DE ESTADOS Y BORRADO ---
-st.subheader("🔄 Gestión de Pedidos de Hoy")
-if pedidos_hoy:
-    opciones_estado = ["Pendiente", "En Camino", "Entregado"]
-    for idx, pedido in enumerate(pedidos_hoy):
-        # Usamos 4 columnas para incluir el botón de borrar
-        c1, c2, c3, c4 = st.columns([3, 2, 1, 1])
-        
-        with c1:
-            st.write(f"**{pedido.get('Sector')}** - {pedido.get('Productos', '')[:30]}...")
-        
-        with c2:
-            estado_actual = pedido.get('Estado') if pedido.get('Estado') in opciones_estado else "Pendiente"
-            nuevo_estado = st.selectbox(
-                f"Estado {idx}", opciones_estado, 
-                index=opciones_estado.index(estado_actual), 
-                key=f"sel_{idx}", label_visibility="collapsed"
-            )
-        
-        with c3:
-            if st.button("OK", key=f"btn_upd_{idx}"):
-                client = conectar_google()
-                hoja = client.open("Registro de Pedidos").sheet1
-                celda = hoja.find(pedido['Fecha y Hora'])
-                hoja.update_cell(celda.row, 7, nuevo_estado)
-                st.rerun()
-        
-        with c4:
-            # BOTÓN PARA BORRAR
-            if st.button("🗑️", key=f"btn_del_{idx}", help="Borrar este pedido"):
-                try:
-                    client = conectar_google()
-                    hoja = client.open("Registro de Pedidos").sheet1
-                    # Buscar la fila por la estampa de tiempo única
-                    celda = hoja.find(pedido['Fecha y Hora'])
-                    hoja.delete_rows(celda.row)
-                    st.success("Eliminado")
-                    st.rerun()
-                except Exception as e:
-                    st.error("Error al borrar")
-else:
-    st.write("Sin pedidos hoy.")
-
-st.divider()
-
-# --- FORMULARIO DE REGISTRO ---
+# --- FORMULARIO CON LIMPIEZA AUTOMÁTICA ---
 st.subheader("📝 Nuevo Pedido")
-sector = st.text_input("📍 Sector:")
-ubica = st.text_input("🗺️ Link de Ubicación:")
-cel = st.text_input("📱 Celular:")
-monto = st.text_input("💰 Monto ($):")
-prod = st.text_area("📦 Productos:")
+
+# Usamos 'key' para poder limpiar los campos desde el código
+sector = st.text_input("📍 Sector:", key="sector")
+ubica = st.text_input("🗺️ Link Ubicación:", key="ubica")
+cel = st.text_input("📱 Celular:", key="cel")
+monto = st.text_input("💰 Monto ($):", key="monto")
+prod = st.text_area("📦 Productos:", key="prod")
 
 if st.button("GENERAR Y GUARDAR"):
     if sector and prod:
-        fecha_full = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        datos_fila = [fecha_full, sector, ubica, cel, monto, prod, "Pendiente"]
+        fecha_f = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        datos_fila = [fecha_f, sector, ubica, cel, monto, prod, "Pendiente"]
+        
         try:
             client = conectar_google()
             hoja = client.open("Registro de Pedidos").sheet1
             hoja.append_row(datos_fila)
-            st.success("✅ ¡Guardado!")
-            st.code(f"✅ *NUEVO PEDIDO*\n---\n📦 *Prod:* {prod}\n💰 *Monto:* ${monto}\n📍 *Sector:* {sector}\n📱 *Cel:* {cel}\n🗺️ *Ubicación:* {ubica}", language="text")
-        except: st.error("Error al conectar")
+            
+            # Mostramos el mensaje para copiar
+            st.success("✅ ¡Guardado en Google Sheets!")
+            mensaje_wa = f"✅ *NUEVO PEDIDO*\n---\n📦 *Prod:* {prod}\n💰 *Monto:* ${monto}\n📍 *Sector:* {sector}\n📱 *Cel:* {cel}\n🗺️ *Ubicación:* {ubica}"
+            st.code(mensaje_wa, language="text")
+            
+            # Botón para limpiar y seguir con otro
+            st.button("Limpiar formulario para nuevo pedido", on_click=limpiar_campos)
+            
+        except Exception as e:
+            st.error(f"Error: {e}")
+    else:
+        st.warning("Completa Sector y Productos.")
