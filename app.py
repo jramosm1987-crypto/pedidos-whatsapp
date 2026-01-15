@@ -4,46 +4,79 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
 # Configuración de página
-st.set_page_config(page_title="Generador de Pedidos", page_icon="🛍️")
+st.set_page_config(page_title="Generador de Pedidos Comonli", page_icon="📦")
 
-# Función para guardar en Google Sheets
+# Estilos CSS para mejorar la apariencia
+st.markdown("""
+    <style>
+    .stButton>button {
+        width: 100%;
+        background-color: #25D366;
+        color: white;
+        font-weight: bold;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# Función para conectar y guardar en Google Sheets
 def guardar_en_nube(datos):
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        # En Streamlit, las credenciales se manejan como "Secrets" por seguridad
-        creds_dict = st.secrets["gcp_service_account"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        # Obtiene credenciales desde Secrets de Streamlit
+        creds_info = st.secrets["gcp_service_account"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
         client = gspread.authorize(creds)
         
+        # Abre la hoja por nombre
         hoja = client.open("Registro de Pedidos").sheet1 
         hoja.append_row(datos)
         return True
     except Exception as e:
-        st.error(f"Error al guardar: {e}")
+        st.error(f"Error de conexión con Google Sheets: {e}")
         return False
 
-st.title("🛍️ Generador de Pedidos")
-st.write("Completa los datos y presiona el botón para guardar y copiar.")
+# Título de la App
+st.title("📋 Nuevo Pedido")
 
-# Campos de entrada
-sector = st.text_input("Sector")
-ubica = st.text_input("Ubicación (Google Maps)")
-cel = st.text_input("Celular del Cliente")
-monto = st.text_input("Monto Total")
-prod = st.text_area("Productos")
+# Formulario
+with st.container():
+    sector = st.text_input("📍 Sector:")
+    ubica = st.text_input("🗺️ Ubicación (Google Maps):")
+    cel = st.text_input("📱 Celular Cliente:")
+    monto = st.text_input("💰 Monto Total ($):")
+    prod = st.text_area("📦 Productos:", height=150)
 
+# Botón de acción
 if st.button("GENERAR Y GUARDAR"):
-    if sector and prod:
+    if not sector or not prod.strip():
+        st.warning("⚠️ Por favor completa al menos Sector y Productos.")
+    else:
+        # Preparar datos para la nube
         fecha_hora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         datos_fila = [fecha_hora, sector, ubica, cel, monto, prod]
         
-        if guardar_en_nube(datos_fila):
-            st.success("✅ ¡Pedido guardado en Google Sheets!")
+        # Intentar guardar
+        exito = guardar_en_nube(datos_fila)
+        
+        if exito:
+            st.success("✅ Pedido registrado en la nube correctamente.")
             
-            # Formato para copiar
-            mensaje = f"✅ *NUEVO PEDIDO*\n---\n📦 *Productos:* {prod}\n💰 *Monto:* ${monto}\n📍 *Sector:* {sector}\n📱 *Cel:* {cel}\n🗺️ *Ubicación:* {ubica}"
-            st.code(mensaje, language="text")
-            st.info("Copia el texto del cuadro de arriba para WhatsApp.")
-    else:
-        st.warning("Por favor completa Sector y Productos.")
+            # Crear formato para WhatsApp
+            mensaje_wa = (
+                f"✅ *NUEVO PEDIDO*\n"
+                f"--------------------------\n"
+                f"📦 *Productos:* {prod}\n"
+                f"💰 *Monto:* ${monto}\n"
+                f"📍 *Sector:* {sector}\n"
+                f"📱 *Celular:* {cel}\n"
+                f"🗺️ *Ubicación:* {ubica}\n"
+                f"--------------------------"
+            )
+            
+            st.write("### Copia el mensaje para WhatsApp:")
+            st.code(mensaje_wa, language="text")
+        else:
+            st.error("❌ El pedido no se pudo guardar en la nube. Revisa los Secrets.")
 
+# Instrucciones al final
+st.info("Recuerda que para guardar, la hoja de Google debe estar compartida con el email del robot.")
