@@ -4,7 +4,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
 # Configuración de página
-st.set_page_config(page_title="Gestión Comonli", page_icon="📈")
+st.set_page_config(page_title="Gestión de Pedidos Comonli", page_icon="📦", layout="wide")
 
 # --- CONEXIÓN ---
 def conectar_google():
@@ -21,38 +21,66 @@ def obtener_datos():
     except:
         return []
 
-# --- LÓGICA DE FILTROS ---
+# --- INTERFAZ ---
+st.title("🚀 Panel de Control de Pedidos")
+
+# Obtener datos y fecha de hoy
 datos = obtener_datos()
 fecha_hoy = datetime.now().strftime("%d/%m/%Y")
-
-# Filtrar pedidos de hoy
 pedidos_hoy = [fila for fila in datos if fecha_hoy in str(fila.get('Fecha y Hora', ''))]
-total_hoy = len(pedidos_hoy)
 
-# --- INTERFAZ ---
-st.title("🚀 Panel de Pedidos")
-
-# Fila de métricas
-col1, col2 = st.columns(2)
+# --- SECCIÓN DE MÉTRICAS ---
+col1, col2, col3 = st.columns(3)
 with col1:
-    st.metric(label="Pedidos de Hoy", value=total_hoy)
+    st.metric("Total Hoy", len(pedidos_hoy))
+with col2:
+    pendientes = len([p for p in pedidos_hoy if p.get('Estado') == 'Pendiente'])
+    st.metric("Pendientes", pendientes)
+with col3:
+    entregados = len([p for p in pedidos_hoy if p.get('Estado') == 'Entregado'])
+    st.metric("Entregados", entregados)
 
-# Buscador por Sector
-st.subheader("🔍 Filtro por Sector")
-sector_buscar = st.text_input("Escribe el nombre del sector para consultar:")
+st.divider()
 
-if sector_buscar:
-    # Contar coincidencias (sin importar mayúsculas/minúsculas)
-    coincidencias = [p for p in pedidos_hoy if sector_buscar.lower() in str(p.get('Sector', '')).lower()]
-    st.info(f"Hay **{len(coincidencias)}** pedidos para '{sector_buscar}' el día de hoy.")
+# --- GESTIÓN DE ESTADOS ---
+st.subheader("🔄 Actualizar Estado de Pedidos (Hoy)")
+if pedidos_hoy:
+    for idx, pedido in enumerate(pedidos_hoy):
+        # Creamos una fila por cada pedido de hoy
+        c1, c2, c3 = st.columns([2, 2, 1])
+        with c1:
+            st.write(f"**{pedido.get('Sector')}** - {pedido.get('Productos')[:30]}...")
+        with c2:
+            nuevo_estado = st.selectbox(
+                f"Estado pedido {idx}", 
+                ["Pendiente", "En Camino", "Entregado"], 
+                index=["Pendiente", "En Camino", "Entregado"].index(pedido.get('Estado', 'Pendiente')),
+                key=f"sel_{idx}",
+                label_visibility="collapsed"
+            )
+        with c3:
+            if st.button("Actualizar", key=f"btn_{idx}"):
+                try:
+                    client = conectar_google()
+                    hoja = client.open("Registro de Pedidos").sheet1
+                    # Encontrar la fila correcta en el Excel (índice + 2 porque el Excel empieza en 1 y tiene encabezado)
+                    # Nota: Esto asume que los pedidos se listan en el mismo orden que en el Excel
+                    # Para mayor precisión buscamos por la Fecha y Hora exacta
+                    celda = hoja.find(pedido['Fecha y Hora'])
+                    hoja.update_cell(celda.row, 7, nuevo_estado) # Columna 7 es 'G' (Estado)
+                    st.success("¡Actualizado!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+else:
+    st.write("No hay pedidos registrados hoy.")
 
 st.divider()
 
 # --- FORMULARIO DE REGISTRO ---
 st.subheader("📝 Registrar Nuevo Pedido")
-
 sector = st.text_input("📍 Sector:")
-ubica = st.text_input("🗺️ Ubicación (Maps):")
+ubica = st.text_input("🗺️ Ubicación:")
 cel = st.text_input("📱 Celular:")
 monto = st.text_input("💰 Monto ($):")
 prod = st.text_area("📦 Productos:")
@@ -60,19 +88,16 @@ prod = st.text_area("📦 Productos:")
 if st.button("GENERAR Y GUARDAR"):
     if sector and prod:
         fecha_full = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        datos_fila = [fecha_full, sector, ubica, cel, monto, prod]
+        # El nuevo pedido se guarda con estado "Pendiente" por defecto en la columna 7
+        datos_fila = [fecha_full, sector, ubica, cel, monto, prod, "Pendiente"]
         
-        # Guardar en nube
         try:
             client = conectar_google()
             hoja = client.open("Registro de Pedidos").sheet1
             hoja.append_row(datos_fila)
-            st.success("✅ ¡Guardado! Refresca la página para actualizar el contador.")
+            st.success("✅ Pedido guardado como 'Pendiente'.")
             
-            # Formato WhatsApp
             mensaje_wa = f"✅ *NUEVO PEDIDO*\n---\n📦 *Prod:* {prod}\n💰 *Monto:* ${monto}\n📍 *Sector:* {sector}\n📱 *Cel:* {cel}\n🗺️ *Ubicación:* {ubica}"
             st.code(mensaje_wa, language="text")
         except Exception as e:
             st.error(f"Error al guardar: {e}")
-    else:
-        st.warning("Completa los campos obligatorios.")
