@@ -2,6 +2,7 @@ import streamlit as st
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
+import webbrowser
 
 # Configuración de página
 st.set_page_config(page_title="Gestión de Pedidos Comonli", page_icon="📦", layout="wide")
@@ -22,13 +23,13 @@ def obtener_datos():
         return []
 
 # --- INTERFAZ ---
-st.title("🚀 Panel de Control de Pedidos")
+st.title("🚀 Panel de Control y Despacho")
 
 datos = obtener_datos()
 fecha_hoy = datetime.now().strftime("%d/%m/%Y")
 pedidos_hoy = [fila for fila in datos if fecha_hoy in str(fila.get('Fecha y Hora', ''))]
 
-# --- SECCIÓN DE MÉTRICAS ---
+# --- MÉTRICAS ---
 col1, col2, col3 = st.columns(3)
 with col1:
     st.metric("Total Hoy", len(pedidos_hoy))
@@ -41,8 +42,27 @@ with col3:
 
 st.divider()
 
+# --- NUEVA SECCIÓN: MAPA DE DESPACHO ---
+st.subheader("🗺️ Hoja de Ruta (Links de Ubicación)")
+if pedidos_hoy:
+    cols_mapa = st.columns(4) # Creamos columnas para que no sea una lista infinita
+    for i, p in enumerate(pedidos_hoy):
+        with cols_mapa[i % 4]:
+            link = p.get('Ubicación (Google Maps)', p.get('Ubicación', ''))
+            sector = p.get('Sector', 'Sin Sector')
+            # Si el link existe y parece un link de Google Maps
+            if "maps" in str(link).lower():
+                st.markdown(f"📍 **{sector}**")
+                st.link_button(f"Ver Ubicación {i+1}", str(link))
+            else:
+                st.write(f"⚠️ {sector} (Sin Link)")
+else:
+    st.info("No hay rutas para mostrar todavía.")
+
+st.divider()
+
 # --- GESTIÓN DE ESTADOS ---
-st.subheader("🔄 Actualizar Estado de Pedidos (Hoy)")
+st.subheader("🔄 Actualizar Estado de Pedidos")
 if pedidos_hoy:
     opciones_estado = ["Pendiente", "En Camino", "Entregado"]
     for idx, pedido in enumerate(pedidos_hoy):
@@ -50,38 +70,30 @@ if pedidos_hoy:
         with c1:
             st.write(f"**{pedido.get('Sector')}** - {pedido.get('Productos', '')[:30]}...")
         with c2:
-            # FIX: Validamos que el estado exista en nuestras opciones, si no, usamos "Pendiente"
-            estado_actual = pedido.get('Estado')
-            if estado_actual not in opciones_estado:
-                estado_actual = "Pendiente"
-                
+            estado_actual = pedido.get('Estado') if pedido.get('Estado') in opciones_estado else "Pendiente"
             nuevo_estado = st.selectbox(
-                f"Estado pedido {idx}", 
-                opciones_estado, 
-                index=opciones_estado.index(estado_actual),
-                key=f"sel_{idx}",
-                label_visibility="collapsed"
+                f"Estado {idx}", opciones_estado, 
+                index=opciones_estado.index(estado_actual), 
+                key=f"sel_{idx}", label_visibility="collapsed"
             )
         with c3:
-            if st.button("Actualizar", key=f"btn_{idx}"):
+            if st.button("OK", key=f"btn_{idx}"):
                 try:
                     client = conectar_google()
                     hoja = client.open("Registro de Pedidos").sheet1
                     celda = hoja.find(pedido['Fecha y Hora'])
                     hoja.update_cell(celda.row, 7, nuevo_estado)
-                    st.success("¡Listo!")
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {e}")
+                except: st.error("Error")
 else:
-    st.write("Aún no hay pedidos registrados para hoy.")
+    st.write("Sin pedidos hoy.")
 
 st.divider()
 
 # --- FORMULARIO DE REGISTRO ---
-st.subheader("📝 Registrar Nuevo Pedido")
+st.subheader("📝 Nuevo Pedido")
 sector = st.text_input("📍 Sector:")
-ubica = st.text_input("🗺️ Ubicación:")
+ubica = st.text_input("🗺️ Link de Ubicación (WhatsApp/Maps):")
 cel = st.text_input("📱 Celular:")
 monto = st.text_input("💰 Monto ($):")
 prod = st.text_area("📦 Productos:")
@@ -90,12 +102,10 @@ if st.button("GENERAR Y GUARDAR"):
     if sector and prod:
         fecha_full = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         datos_fila = [fecha_full, sector, ubica, cel, monto, prod, "Pendiente"]
-        
         try:
             client = conectar_google()
             hoja = client.open("Registro de Pedidos").sheet1
             hoja.append_row(datos_fila)
-            st.success("✅ Pedido guardado.")
+            st.success("✅ ¡Guardado!")
             st.code(f"✅ *NUEVO PEDIDO*\n---\n📦 *Prod:* {prod}\n💰 *Monto:* ${monto}\n📍 *Sector:* {sector}\n📱 *Cel:* {cel}\n🗺️ *Ubicación:* {ubica}", language="text")
-        except Exception as e:
-            st.error(f"Error: {e}")
+        except: st.error("Error al conectar")
