@@ -6,86 +6,60 @@ from datetime import datetime
 # Configuración de página
 st.set_page_config(page_title="Generador de Pedidos Comonli", page_icon="📦")
 
-# Estilos CSS para mejorar la apariencia
-st.markdown("""
-    <style>
-    .stButton>button {
-        width: 100%;
-        background-color: #25D366;
-        color: white;
-        font-weight: bold;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+# Función para conectar con Google Sheets
+def conectar_google():
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds_info = st.secrets["gcp_service_account"]
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
+    return gspread.authorize(creds)
 
-# Función para conectar y guardar en Google Sheets
+def obtener_total_pedidos():
+    try:
+        client = conectar_google()
+        hoja = client.open("Registro de Pedidos").sheet1
+        # Cuenta filas y resta el encabezado
+        return len(hoja.get_all_values()) - 1
+    except:
+        return 0
+
 def guardar_en_nube(datos):
     try:
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds_info = st.secrets["gcp_service_account"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
-        client = gspread.authorize(creds)
-        
-        # BUSCAR POR NOMBRE (Asegúrate que el nombre sea IDÉNTICO en tu Drive)
-        nombre_archivo = "Registro de Pedidos"
-        
-        try:
-            # Intentamos abrirlo
-            hoja_calculo = client.open(nombre_archivo)
-            hoja = hoja_calculo.sheet1
-            hoja.append_row(datos)
-            return True
-        except gspread.exceptions.SpreadsheetNotFound:
-            st.error(f"❌ No se encontró el archivo '{nombre_archivo}'. Revisa el nombre en Google Drive.")
-            return False
-            
+        client = conectar_google()
+        hoja = client.open("Registro de Pedidos").sheet1 
+        hoja.append_row(datos)
+        return True
     except Exception as e:
-        st.error(f"Error crítico: {e}")
+        st.error(f"Error: {e}")
         return False
 
-# Título de la App
-st.title("📋 Nuevo Pedido")
+# --- INTERFAZ ---
+st.title("📋 Gestión de Pedidos")
+
+# Mostrar Contador
+total = obtener_total_pedidos()
+st.metric(label="Pedidos Totales Registrados", value=total)
+st.divider()
 
 # Formulario
-with st.container():
-    sector = st.text_input("📍 Sector:")
-    ubica = st.text_input("🗺️ Ubicación (Google Maps):")
-    cel = st.text_input("📱 Celular Cliente:")
-    monto = st.text_input("💰 Monto Total ($):")
-    prod = st.text_area("📦 Productos:", height=150)
+sector = st.text_input("📍 Sector:")
+ubica = st.text_input("🗺️ Ubicación (Google Maps):")
+cel = st.text_input("📱 Celular Cliente:")
+monto = st.text_input("💰 Monto Total ($):")
+prod = st.text_area("📦 Productos:")
 
-# Botón de acción
 if st.button("GENERAR Y GUARDAR"):
-    if not sector or not prod.strip():
-        st.warning("⚠️ Por favor completa al menos Sector y Productos.")
-    else:
-        # Preparar datos para la nube
+    if sector and prod:
         fecha_hora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         datos_fila = [fecha_hora, sector, ubica, cel, monto, prod]
         
-        # Intentar guardar
-        exito = guardar_en_nube(datos_fila)
-        
-        if exito:
-            st.success("✅ Pedido registrado en la nube correctamente.")
-            
-            # Crear formato para WhatsApp
-            mensaje_wa = (
-                f"✅ *NUEVO PEDIDO*\n"
-                f"--------------------------\n"
-                f"📦 *Productos:* {prod}\n"
-                f"💰 *Monto:* ${monto}\n"
-                f"📍 *Sector:* {sector}\n"
-                f"📱 *Celular:* {cel}\n"
-                f"🗺️ *Ubicación:* {ubica}\n"
-                f"--------------------------"
-            )
-            
-            st.write("### Copia el mensaje para WhatsApp:")
+        if guardar_en_nube(datos_fila):
+            st.success("✅ Pedido guardado. ¡El contador se actualizará al recargar!")
+            mensaje_wa = f"✅ *NUEVO PEDIDO*\n---\n📦 *Prod:* {prod}\n💰 *Monto:* ${monto}\n📍 *Sector:* {sector}\n📱 *Cel:* {cel}\n🗺️ *Ubicación:* {ubica}"
             st.code(mensaje_wa, language="text")
-        else:
-            st.error("❌ El pedido no se pudo guardar en la nube. Revisa los Secrets.")
+            # Botón para refrescar y ver el nuevo número
+            if st.button("Actualizar Contador"):
+                st.rerun()
+    else:
+        st.warning("Completa los campos obligatorios.")
 
-# Instrucciones al final
-st.info("Recuerda que para guardar, la hoja de Google debe estar compartida con el email del robot.")
 
