@@ -22,17 +22,25 @@ st.markdown("""
 def guardar_en_nube(datos):
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        # Obtiene credenciales desde Secrets de Streamlit
         creds_info = st.secrets["gcp_service_account"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
         client = gspread.authorize(creds)
         
-        # Abre la hoja por nombre
-        hoja = client.open("Registro de Pedidos").sheet1 
-        hoja.append_row(datos)
-        return True
+        # BUSCAR POR NOMBRE (Asegúrate que el nombre sea IDÉNTICO en tu Drive)
+        nombre_archivo = "Registro de Pedidos"
+        
+        try:
+            # Intentamos abrirlo
+            hoja_calculo = client.open(nombre_archivo)
+            hoja = hoja_calculo.sheet1
+            hoja.append_row(datos)
+            return True
+        except gspread.exceptions.SpreadsheetNotFound:
+            st.error(f"❌ No se encontró el archivo '{nombre_archivo}'. Revisa el nombre en Google Drive.")
+            return False
+            
     except Exception as e:
-        st.error(f"Error de conexión con Google Sheets: {e}")
+        st.error(f"Error crítico: {e}")
         return False
 
 # Título de la App
@@ -80,3 +88,4 @@ if st.button("GENERAR Y GUARDAR"):
 
 # Instrucciones al final
 st.info("Recuerda que para guardar, la hoja de Google debe estar compartida con el email del robot.")
+
